@@ -1,0 +1,88 @@
+controller层
+/**
+     * 通讯录导入
+     *
+     * @param userId       客户id
+     * @param requestString 请求的通讯录列表数据的json字符串
+     * @return 导入结果
+     * @author JhonGuo
+     * @date 2019/5/31 17:02
+     */
+    @PostMapping("/address-book-import")
+    public InvocationResult importAddressBook(
+//            @RequestHeader(name = RequestConstant.REQUEST_HEADER_USER_ID) Long userId,
+            @RequestParam("user_id") Long userId,
+            @RequestParam("request_string") String requestString) {
+        List<AddressBookBO> addressBookBOS;
+        try {
+            JSONObject jsonObject = JSONObject.parseObject(requestString);
+            JSONArray list = jsonObject.getJSONArray("list");
+            addressBookBOS = JSONArray.parseArray(list.toJSONString(), AddressBookBO.class);
+        } catch (Exception e) {
+            LOGGER.error("json解析失败" + e.getMessage());
+            return new InvocationResult(UnifyErrorCode.VALIDATE_FAILD, "json解析失败" + e.getMessage());
+        }
+        accFriendService.importAddressBook(userId, addressBookBOS);
+        return InvocationResult.SUCCESS;
+    }
+
+service层
+/**
+ * 导入通讯录
+ *
+ * @param cusId 客户id
+ * @param addressBookList 业务层通讯录对象集合
+ * @author JhonGuo
+ * @date 2019/5/31 17:02
+ */
+public void importAddressBook(long cusId, List<AddressBookBO> addressBookList) {
+    // 通讯录需要维护，先删除客户通讯录好友，再插入最新数据
+    AccFriendExample accFriendExample = new AccFriendExample();
+    AccFriendExample.Criteria criteria = accFriendExample.createCriteria();
+    criteria.andUserIdEqualTo(cusId);
+    criteria.andChannelEqualTo(IFriendConstant.CHANNEL_ADDRESS_BOOK);
+    mapper.deleteByExample(accFriendExample);
+    LOGGER.info("客户号为" + cusId + "的通讯录删除成功");
+    List<AccFriend> accFriendList = new ArrayList<>();
+    for (AddressBookBO addressBookBO : addressBookList) {
+        // 将address_book对象转换成acc_friend对象
+        AccFriend accFriend = new AccFriend();
+        accFriend.setUserId(cusId);
+        String friendName = addressBookBO.getName();
+        if (StringUtil.isEmpty(friendName)) {
+            LOGGER.info("通讯录中姓名为空" + addressBookBO);
+            continue;
+        }
+        accFriend.setFriendName(friendName);
+        String friendPhone = addressBookBO.getPhone();
+        if (StringUtil.isEmpty(friendPhone)) {
+            LOGGER.info("通讯录中手机号为空" + addressBookBO);
+            continue;
+        }
+        accFriend.setFriendPhone(friendPhone);
+        accFriend.setChannel(IFriendConstant.CHANNEL_ADDRESS_BOOK);
+        accFriend.setMutualState(IFriendConstant.NOT_MUTUAL_STATE);
+        accFriend.setGmtCreate(new Date());
+        accFriend.setGmtModified(new Date());
+        accFriendList.add(accFriend);
+    }
+    // 批量导入
+    addBatch(accFriendList);
+    LOGGER.info("客户号为" + cusId + "的通讯录导入成功");
+}
+
+/**
+ * 批量插入数据 若实体中包含@SequenceGenerator注解且值为空,则自动为其生成编号
+ *
+ * @param list 要插入的数据实体集合
+ */
+@Transactional
+public void addBatch(List<AccFriend> list) {
+    BatchExecuter<AccFriendMapper> executer = batchHelper.getBatchExecuter(AccFriendMapper.class);
+    executer.execute(list, new IExecuteSingleAction<AccFriendMapper, AccFriend>() {
+        @Override
+        public void execute(AccFriendMapper dao, AccFriend entity) {
+            dao.insert(entity);
+        }
+    });
+}
