@@ -1,0 +1,545 @@
+package com.help.web.controller.tools;
+
+import com.help.common.validate.Name;
+import org.apache.poi.hssf.usermodel.*;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.*;
+import java.lang.reflect.Field;
+import java.util.*;
+
+/**
+ * excel工具类
+ *
+ * @author 耿涛、ZHR
+ */
+public class ExcelUtil {
+
+    public static byte[] exportForByte(String workName, Map<String, String> nMap, List<Map<String, Object>> source) {
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        try {
+            HSSFWorkbook hssfworkbook = export(workName, nMap, source);
+            hssfworkbook.write(os);
+            return os.toByteArray();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        } finally {
+            try {
+                if (os != null) {
+                    os.close();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
+    public static void exportExcel(OutputStream outputStream, String workName, Map<String, String> nMap, List<Map<String, Object>> source) {
+        try {
+            HSSFWorkbook hssfworkbook = export(workName, nMap, source);
+            hssfworkbook.write(outputStream);
+            outputStream.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (outputStream != null) {
+                    outputStream.close();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+
+    public static HSSFWorkbook export(String workName, Map<String, String> nMap, List<Map<String, Object>> source) {
+        HSSFWorkbook hssfworkbook = new HSSFWorkbook();
+        HSSFSheet hssfSheet = hssfworkbook.createSheet(workName);
+        HSSFRow row;
+        HSSFCell cell;
+        List<String> list = new ArrayList<>();
+        Map<String, Object> map;
+        ExportUtil exportUtil = new ExportUtil(hssfworkbook, hssfSheet);
+
+        HSSFCellStyle headStyle = exportUtil.getHeadStyle(false);
+        HSSFCellStyle bodyStyle = exportUtil.getBodyStyle();
+        for (int i = 0; i < source.size(); i++) {
+            if (i == 0) {
+                int j = 0;
+                row = hssfSheet.createRow(0);
+                for (String keyf : nMap.keySet()) {
+                    list.add(keyf);
+                    cell = row.createCell(j);
+                    cell.setCellStyle(headStyle);
+                    cell.setCellValue(nMap.get(keyf));
+                    j++;
+                }
+            }
+            row = hssfSheet.createRow(i + 1);
+            map = source.get(i);
+            for (int k = 0; k < list.size(); k++) {
+                cell = row.createCell(k);
+                cell.setCellStyle(bodyStyle);
+                if (map.get(list.get(k)) == null) {
+                    cell.setCellValue(" ");
+                } else {
+                    cell.setCellValue(map.get(list.get(k)) + "");
+                }
+            }
+        }
+        return hssfworkbook;
+    }
+
+
+    /**
+     * 根据实体类名获取字段名称和中文名称
+     *
+     * @param clazz 实体类名
+     * @return 'LinkedHashMap<String,String>'
+     */
+    public static LinkedHashMap<String, String> getAnnoNames(Class clazz) {
+        //用于存储实体类字段(key)和中文名(value)
+        LinkedHashMap<String, String> map = new LinkedHashMap<>();
+        //获取对象中所有的Field
+        Field[] fields = clazz.getDeclaredFields();
+        //循环实体类字段集合,获取标注@ColumnConfig的字段
+        for (Field field : fields) {
+            if (field.isAnnotationPresent(Name.class)) {
+                //获取字段注解
+                Name anno = field.getAnnotation(Name.class);
+                //判断是否已经获取过该code的字典数据 避免重复获取
+                if (map.get(anno.value()) == null) {
+                    //获取字段名
+                    map.put(field.getName(), anno.value());
+                }
+            }
+        }
+        //将LinkedHashMap放入List集合中
+        return map;
+    }
+
+    /**
+     * 读取excel文件 读取第一页 读取所有列
+     *
+     * @param filePath
+     *            文件路径
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(String filePath) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(filePath);
+        if (wb != null) {
+            list = getExcelList(wb, -1);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel文件 读取第一页 读取所有列
+     *
+     * @param file
+     *            文件
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(File file) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(file);
+        if (wb != null) {
+            list = getExcelList(wb, -1);
+        }
+        return list;
+    }
+
+
+    /**
+     * 读取excel文件 读取所有页 读取所有列
+     *
+     * @param file
+     *            文件
+     * @return 返回一个有序LinkedList< LinkedList<LinkedList<String>>> 每一行每一列都是有序的
+     */
+    public static List<List<List<String>>> readAllExcel(File file) {
+        List<List<List<String>>> list = null;
+        Workbook wb = getWorkbook(file);
+        if (wb != null) {
+            list = getExcelAllList(wb, -1);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel文件 读取第一页
+     *
+     * @param is
+     *            文件输入流
+     * @param fileFormat
+     *            文件格式 文件格式 .xls 或者xlsl
+     * @param columns
+     *            读取的列数 -1 读取所有列
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(FileInputStream is, String fileFormat, int columns) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(is, fileFormat);
+        if (wb != null) {
+            list = getExcelList(wb, columns);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel文件 读取第一页 读取所有列
+     *
+     * @param filePath
+     *            文件路径
+     * @param columns
+     *            读取的列数 -1 读取所有列
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(String filePath, int columns) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(filePath);
+        if (wb != null) {
+            list = getExcelList(wb, columns);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel文件 读取第一页
+     *
+     * @param file
+     *            文件
+     * @param columns
+     *            读取的列数 -1 读取所有列
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(File file, int columns) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(file);
+        if (wb != null) {
+            list = getExcelList(wb, columns);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel文件 读取第一页 读取所有列
+     *
+     * @param is
+     *            文件输入流
+     * @param fileFormat
+     *            文件格式 文件格式 .xls 或者xlsl
+     * @return 返回一个有序 LinkedList<LinkedList<String>> 每一行每一列都是有序的
+     */
+    public static List<List<String>> readExcel(FileInputStream is, String fileFormat) {
+        List<List<String>> list = null;
+        Workbook wb = getWorkbook(is, fileFormat);
+        if (wb != null) {
+            list = getExcelList(wb, -1);
+        }
+        return list;
+    }
+
+    private static List<List<String>> getExcelList(Workbook wb, int columns) {
+        Sheet sheet = null;
+        Row row = null;
+        List<List<String>> list = null;
+        String cellData = null;
+        // 用来存放表中数据
+        list = new LinkedList<List<String>>();
+        // 获取第一个sheet
+        sheet = wb.getSheetAt(0);
+        // 获取最大行数
+        int rownum = sheet.getPhysicalNumberOfRows();
+        // 获取第一行
+        row = sheet.getRow(0);
+        // 获取最大列数
+        int colnum = (columns == -1) ? row.getPhysicalNumberOfCells() : columns;
+        for (int i = 0; i < rownum; i++) {
+            List<String> columnList = new LinkedList<String>();
+            row = sheet.getRow(i);
+            if (row != null) {
+                for (int j = 0; j < colnum; j++) {
+                    cellData = (String) getCellFormatValue(row.getCell(j));
+                    columnList.add(cellData);
+                }
+            } else {
+                break;
+            }
+            list.add(columnList);
+        }
+        return list;
+    }
+
+    /**
+     * 获取所有数据
+     * @param wb
+     * @param columns
+     * @return
+     */
+    private static List<List<List<String>>> getExcelAllList(Workbook wb, int columns) {
+        Sheet sheet = null;
+        Row row = null;
+        List<List<List<String>>> list = null;
+        String cellData = null;
+
+        int sheets=wb.getNumberOfSheets();
+        // 用来存放表中数据
+        list = new LinkedList<List<List<String>>>();
+
+        for (int sheetNo=0 ;sheetNo<sheets;sheetNo++){
+            List<List<String>> sheetlist = new LinkedList<List<String>>();
+            // 获取第一个sheet、
+            sheet = wb.getSheetAt(sheetNo);
+            // 获取最大行数
+            int rownum = sheet.getPhysicalNumberOfRows();
+            // 获取第一行
+            row = sheet.getRow(0);
+            // 获取最大列数
+            int colnum = (columns == -1) ? row.getPhysicalNumberOfCells() : columns;
+            for (int i = 1; i < rownum; i++) {
+                List<String> columnList = new LinkedList<String>();
+                row = sheet.getRow(i);
+                if (row != null) {
+                    for (int j = 0; j < colnum; j++) {
+                        cellData = (String) getCellFormatValue(row.getCell(j));
+                        columnList.add(cellData);
+                    }
+                } else {
+                    break;
+                }
+                sheetlist.add(columnList);
+            }
+            list.add(sheetlist);
+        }
+        return list;
+    }
+
+    /**
+     * 读取excel
+     *
+     * @param filePath
+     *            文件路径
+     * @return
+     */
+    private static Workbook getWorkbook(String filePath) {
+        Workbook wb = null;
+        if (filePath == null) {
+            return null;
+        }
+        String extString = filePath.substring(filePath.lastIndexOf("."));
+        InputStream is = null;
+        try {
+            is = new FileInputStream(filePath);
+            if (".xls".equals(extString)) {
+                return wb = new HSSFWorkbook(is);
+            } else if (".xlsx".equals(extString)) {
+                return wb = new XSSFWorkbook(is);
+            } else {
+                return wb = null;
+            }
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return wb;
+    }
+
+    /**
+     * 读取excel
+     *
+     * @param file
+     *            文件
+     * @return
+     */
+    private static Workbook getWorkbook(File file) {
+        Workbook wb = null;
+        if (file == null) {
+            return null;
+        }
+        String extString = file.getName().substring(file.getName().lastIndexOf("."));
+        FileInputStream is = null;
+        try {
+            is = new FileInputStream(file);
+            if (".xls".equals(extString)) {
+                return wb = new HSSFWorkbook(is);
+            } else if (".xlsx".equals(extString)) {
+                return wb = new XSSFWorkbook(is);
+            } else {
+                return wb = null;
+            }
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return wb;
+    }
+
+    /**
+     * 读取excel
+     *
+     * @param is
+     *            文件输入流
+     * @param fileFormat
+     *            文件格式 .xls 或者xlsl
+     * @return
+     */
+    private static Workbook getWorkbook(FileInputStream is, String fileFormat) {
+        Workbook wb = null;
+        if (is == null || fileFormat == null) {
+            return null;
+        }
+        try {
+            if (".xls".equals(fileFormat)) {
+                return wb = new HSSFWorkbook(is);
+            } else if (".xlsx".equals(fileFormat)) {
+                return wb = new XSSFWorkbook(is);
+            } else {
+                return wb = null;
+            }
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return wb;
+    }
+
+    private static Object getCellFormatValue(Cell cell) {
+        Object cellValue = null;
+        if (cell != null) {
+            // 判断cell类型
+            switch (cell.getCellTypeEnum()) {
+                case NUMERIC: {
+                    int cellValue_int = (int)cell.getNumericCellValue();
+                    cellValue=String.valueOf(cellValue_int);
+                    break;
+                }
+                case FORMULA: {
+                    // 判断cell是否为日期格式
+                    if (DateUtil.isCellDateFormatted(cell)) {
+                        // 转换为日期格式YYYY-mm-dd
+                        cellValue = cell.getDateCellValue();
+                    } else {
+                        // 数字
+                        cellValue = String.valueOf(cell.getNumericCellValue());
+                    }
+                    break;
+                }
+                case STRING: {
+                    cellValue = cell.getRichStringCellValue().getString();
+                    break;
+                }
+                default:
+                    cellValue = "";
+            }
+        } else {
+            cellValue = "";
+        }
+        return cellValue;
+    }
+
+}
+
+
+
+
+
+
+package com.help.web.controller.tools;
+
+import org.apache.poi.hssf.usermodel.HSSFCellStyle;
+import org.apache.poi.hssf.usermodel.HSSFFont;
+import org.apache.poi.hssf.usermodel.HSSFSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.hssf.util.HSSFColor;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.VerticalAlignment;
+
+/**
+ * EXECL导出辅助类
+ * @author 耿涛、ZHR、ZML
+ */
+public class ExportUtil {
+
+    private HSSFWorkbook wb = null;
+
+    private HSSFSheet sheet = null;
+
+    public ExportUtil(HSSFWorkbook wb, HSSFSheet sheet) {
+        this.wb = wb;
+        this.sheet = sheet;
+    }
+
+
+    public ExportUtil() {
+    }
+
+
+    /**
+     * 表头字体
+     *
+     * @return
+     */
+    public HSSFCellStyle getHeadStyle(boolean isalert) {
+        HSSFCellStyle cellStyle = wb.createCellStyle();
+        if (!isalert) {
+            cellStyle.setFillForegroundColor(HSSFColor.HSSFColorPredefined.PALE_BLUE.getIndex());
+        } else {
+            cellStyle.setFillForegroundColor(HSSFColor.HSSFColorPredefined.RED.getIndex());
+        }
+        cellStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        cellStyle.setAlignment(HorizontalAlignment.CENTER);
+        cellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+        cellStyle.setWrapText(true);
+        HSSFFont font = wb.createFont();
+        font.setBold(true);
+        font.setFontName("宋体");
+        if (isalert) {
+            font.setColor(HSSFColor.HSSFColorPredefined.WHITE.getIndex());
+        }
+        font.setFontHeight((short) 180);
+        cellStyle.setFont(font);
+
+        cellStyle.setBorderLeft(BorderStyle.THIN);
+        cellStyle.setBorderBottom(BorderStyle.THIN);
+        cellStyle.setBorderRight(BorderStyle.THIN);
+        cellStyle.setBorderTop(BorderStyle.THIN);
+        return cellStyle;
+    }
+
+
+    /**
+     * 表体字体
+     *
+     * @return
+     */
+    public HSSFCellStyle getBodyStyle() {
+        HSSFCellStyle cellStyle = wb.createCellStyle();
+        cellStyle.setAlignment(HorizontalAlignment.CENTER);
+        cellStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+        cellStyle.setWrapText(true);
+        HSSFFont font = wb.createFont();
+        font.setBold(false);
+        font.setFontName("宋体");
+        font.setFontHeight((short) 180);
+        cellStyle.setFont(font);
+        cellStyle.setBorderLeft(BorderStyle.THIN);
+        cellStyle.setBorderBottom(BorderStyle.THIN);
+        cellStyle.setBorderRight(BorderStyle.THIN);
+        cellStyle.setBorderTop(BorderStyle.THIN);
+        return cellStyle;
+    }
+}
